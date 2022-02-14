@@ -141,11 +141,12 @@ func (h *handshake) writeWithSignature(b []byte) error {
 	if _, err := h.hash.Write(b); err != nil {
 		return fmt.Errorf("error writing handshake payload to hash: %w", err)
 	}
+	sig := h.hash.Sum(nil)
 
 	if err := writeLV(h.c, b); err != nil {
 		return fmt.Errorf("error writing handshake payload: %w", err)
 	}
-	if err := writeLV(h.c, h.hash.Sum(nil)); err != nil {
+	if err := writeLV(h.c, sig); err != nil {
 		return fmt.Errorf("error writing handshake signature: %w", err)
 	}
 
