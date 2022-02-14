@@ -90,10 +90,6 @@ func (c *conn) Read(b []byte) (int, error) {
 	n := copy(b, c.readBuf[:amount])
 	c.readBuf = c.readBuf[amount:]
 
-	if len(c.readBuf) == 0 {
-		c.readBuf = nil
-	}
-
 	return n, nil
 }
 
