@@ -23,7 +23,7 @@ type (
 	}
 )
 
-func clientMain(keyFile string) {
+func proxyMain(keyFile string) {
 	m, err := mytls.NewFromFile(keyFile)
 	if err != nil {
 		panic(err)

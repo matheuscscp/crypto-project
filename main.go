@@ -15,8 +15,8 @@ func main() {
 	switch os.Args[1] {
 	case "server":
 		serverMain(keyFile)
-	case "client":
-		clientMain(keyFile)
+	case "proxy":
+		proxyMain(keyFile)
 	case "genkey":
 		if err := mytls.GenerateKey(keyFile); err != nil {
 			panic(err)
