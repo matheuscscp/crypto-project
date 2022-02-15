@@ -52,6 +52,10 @@ func (c *conn) Write(b []byte) (int, error) {
 		return 0, c.handshakeErr
 	}
 
+	if len(b) == 0 {
+		return 0, nil
+	}
+
 	msg, err := c.encrypt(b)
 	if err != nil {
 		return 0, err
@@ -69,6 +73,10 @@ func (c *conn) Read(b []byte) (int, error) {
 		return 0, c.handshakeErr
 	}
 
+	if len(b) == 0 {
+		return 0, nil
+	}
+
 	if len(c.readBuf) == 0 {
 		msg, err := readLV(c.Conn)
 		if err != nil {
@@ -83,12 +91,8 @@ func (c *conn) Read(b []byte) (int, error) {
 		c.readBuf = msg
 	}
 
-	amount := len(b)
-	if len(c.readBuf) < amount {
-		amount = len(c.readBuf)
-	}
-	n := copy(b, c.readBuf[:amount])
-	c.readBuf = c.readBuf[amount:]
+	n := copy(b, c.readBuf)
+	c.readBuf = c.readBuf[n:]
 
 	return n, nil
 }
