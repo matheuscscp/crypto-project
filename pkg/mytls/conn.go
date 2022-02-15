@@ -11,6 +11,7 @@ import (
 	"hash"
 	"io"
 	"net"
+	"time"
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
@@ -158,6 +159,9 @@ func (h *handshake) writeWithSignature(b []byte) error {
 }
 
 func (h *handshake) readAndVerify() ([]byte, error) {
+	h.c.SetReadDeadline(time.Now().Add(time.Second))
+	defer h.c.SetReadDeadline(time.Time{})
+
 	b, err := readLV(h.c)
 	if err != nil {
 		return nil, fmt.Errorf("error reading handshake payload: %w", err)
