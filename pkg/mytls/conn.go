@@ -119,7 +119,7 @@ func (c *conn) decrypt(b []byte) ([]byte, error) {
 }
 
 func (h *handshake) doHandshake() (cipher.AEAD, error) {
-	pri, pub, err := generateKeyPair()
+	pri, pub, err := generateECDHEKeyPair()
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (h *handshake) doHandshake() (cipher.AEAD, error) {
 	if err != nil {
 		return nil, err
 	}
-	return aeadFromECDHE(pri, pubPeer)
+	return aeadFromECDHEKeyPair(pri, pubPeer)
 }
 
 func (h *handshake) doExchange(publicKey []byte) ([]byte, error) {
@@ -182,7 +182,7 @@ func (h *handshake) readAndVerify() ([]byte, error) {
 	return b, nil
 }
 
-func generateKeyPair() (private, public []byte, err error) {
+func generateECDHEKeyPair() (private, public []byte, err error) {
 	pri := make([]byte, curve25519.ScalarSize)
 	if _, err := cryptorand.Read(pri); err != nil {
 		return nil, nil, fmt.Errorf("error generating private key: %w", err)
@@ -196,7 +196,7 @@ func generateKeyPair() (private, public []byte, err error) {
 	return
 }
 
-func aeadFromECDHE(private, public []byte) (cipher.AEAD, error) {
+func aeadFromECDHEKeyPair(private, public []byte) (cipher.AEAD, error) {
 	sharedKey, err := curve25519.X25519(private, public)
 	if err != nil {
 		return nil, fmt.Errorf("error combining keys: %w", err)
