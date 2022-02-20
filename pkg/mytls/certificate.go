@@ -35,6 +35,11 @@ type (
 	certificateSignature []byte
 )
 
+var (
+	untrustedRootCertificateErr       = errors.New("untrusted root certificate")
+	untrustedSelfSignedCertificateErr = errors.New("untrusted self-signed certificate")
+)
+
 // GenerateCertificate generates an unsigned certificate with a random
 // key pair.
 //
@@ -65,8 +70,9 @@ func GenerateCertificate(duration time.Duration, certFile, keyFile string) error
 
 // SignCertificate uses a parent certificate to sign the given certificate.
 //
-// If parentCertFile == "", then the parentKeyFile should be the private
-// key of the given certificate and the certificate will be self-signed.
+// To self-sign a certificate pass parentCertFile == "". The behavior is
+// undefined if certFile and parentCertFile point to the same file in the
+// file system.
 func SignCertificate(certFile, parentCertFile, parentKeyFile string) error {
 	c, err := readCertificate(certFile)
 	if err != nil {
@@ -113,12 +119,11 @@ func newCertificateRegistry(certFiles []string) (certificateRegistry, error) {
 }
 
 func (cr certificateRegistry) validate(b []byte) (ed25519.PublicKey, error) {
-	if len(cr) == 0 {
-		return nil, nil
-	}
-
 	if len(b) == 0 {
-		return nil, errors.New("want certificate but got empty")
+		if len(cr) > 0 {
+			return nil, errors.New("want certificate but got empty")
+		}
+		return nil, nil
 	}
 
 	c, err := parseWireCertificate(b)
@@ -126,16 +131,11 @@ func (cr certificateRegistry) validate(b []byte) (ed25519.PublicKey, error) {
 		return nil, err
 	}
 
-	rootPubKey, err := c.validate()
-	if err != nil {
-		return nil, err
-	}
-
-	if _, ok := cr[*rootPubKey]; !ok {
-		if rootPubKey == c.Data.PublicKey.asArray() {
-			return nil, errors.New("self signed certificate")
+	if err := c.validate(cr); err != nil {
+		if errors.Is(err, untrustedRootCertificateErr) && c.Parent == nil {
+			return nil, untrustedSelfSignedCertificateErr
 		}
-		return nil, errors.New("untrusted root certificate")
+		return nil, err
 	}
 
 	return ed25519.PublicKey(c.Data.PublicKey), nil
@@ -146,7 +146,7 @@ func newCertificate(certFile string) (*certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := c.validate(); err != nil {
+	if err := c.validate(nil /* certificateRegistry */); err != nil {
 		return nil, fmt.Errorf("certificate is invalid: %w", err)
 	}
 	return c, nil
@@ -202,24 +202,33 @@ func (c *certificate) wireFormat() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (c *certificate) validate() (*certificatePublicKeyArray, error) {
-	if c.Parent == nil {
-		p := c.Data.PublicKey.asArray()
-		if err := c.validateWithPublicKey(p); err != nil {
-			return nil, err
+func (c *certificate) validate(cr certificateRegistry) error {
+	if c.Parent == nil { // root
+		key := c.Data.PublicKey.asArray()
+		if err := c.validateWithPublicKey(key); err != nil {
+			return err
 		}
-		return p, nil
+
+		if _, rootIsTrusted := cr[*key]; !rootIsTrusted && len(cr) > 0 {
+			return untrustedRootCertificateErr
+		}
+
+		return nil
 	}
 
-	if err := c.validateWithPublicKey(c.Parent.Data.PublicKey.asArray()); err != nil {
-		return nil, err
+	key := c.Parent.Data.PublicKey.asArray()
+	if err := c.validateWithPublicKey(key); err != nil {
+		return err
+	}
+	if _, parentIsTrusted := cr[*key]; parentIsTrusted {
+		return nil
 	}
 
-	return c.Parent.validate()
+	return c.Parent.validate(cr)
 }
 
-func (c *certificate) validateWithPublicKey(p *certificatePublicKeyArray) error {
-	if !ed25519.Verify(p[:], c.deterministicallySerializeCertifiedData(), c.Signature) {
+func (c *certificate) validateWithPublicKey(key *certificatePublicKeyArray) error {
+	if !ed25519.Verify(key[:], c.deterministicallySerializeCertifiedData(), c.Signature) {
 		return errors.New("signature cannot be verified")
 	}
 	if c.Data.ExpiresAt.Before(time.Now()) {
@@ -250,20 +259,20 @@ func (c *certificate) marshalAndWrite(certFile string) error {
 	return nil
 }
 
-func (p certificatePublicKey) asArray() *certificatePublicKeyArray {
-	return (*certificatePublicKeyArray)(p)
+func (k certificatePublicKey) asArray() *certificatePublicKeyArray {
+	return (*certificatePublicKeyArray)(k)
 }
 
-func (p certificatePublicKey) MarshalYAML() (interface{}, error) {
-	return marshalYAMLCertificateByteSlice(p)
+func (k certificatePublicKey) MarshalYAML() (interface{}, error) {
+	return marshalYAMLCertificateByteSlice(k)
 }
 
-func (p *certificatePublicKey) UnmarshalYAML(value *yaml.Node) error {
+func (k *certificatePublicKey) UnmarshalYAML(value *yaml.Node) error {
 	return unmarshalYAMLCertificateByteSlice(
 		value,
-		(*[]byte)(p),
-		"public key", // sliceType
-		ed25519.PublicKeySize,
+		(*[]byte)(k),          // buf
+		"public key",          // sliceType
+		ed25519.PublicKeySize, // expectedLen
 	)
 }
 
@@ -274,9 +283,9 @@ func (s certificateSignature) MarshalYAML() (interface{}, error) {
 func (s *certificateSignature) UnmarshalYAML(value *yaml.Node) error {
 	return unmarshalYAMLCertificateByteSlice(
 		value,
-		(*[]byte)(s),
-		"signature", // sliceType
-		ed25519.SignatureSize,
+		(*[]byte)(s),          // buf
+		"signature",           // sliceType
+		ed25519.SignatureSize, // expectedLen
 	)
 }
 
