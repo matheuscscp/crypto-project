@@ -37,7 +37,9 @@ type (
 
 // GenerateCertificate generates an unsigned certificate with a random
 // key pair.
-func GenerateCertificate(d time.Duration, certFile, keyFile string) error {
+//
+// If duration <= 0, then duration is assigned 365 days.
+func GenerateCertificate(duration time.Duration, certFile, keyFile string) error {
 	pub, pri, err := ed25519.GenerateKey(cryptorand.Reader)
 	if err != nil {
 		return fmt.Errorf("error generating random key pair for certificate: %w", err)
@@ -45,10 +47,10 @@ func GenerateCertificate(d time.Duration, certFile, keyFile string) error {
 
 	var c certificate
 	c.Data.PublicKey = certificatePublicKey(pub)
-	if d <= 0 {
-		d = time.Hour * 24 * 365
+	if duration <= 0 {
+		duration = time.Hour * 24 * 365
 	}
-	c.Data.ExpiresAt = time.Now().Add(d)
+	c.Data.ExpiresAt = time.Now().Add(duration)
 
 	if err := c.marshalAndWrite(certFile); err != nil {
 		return err
@@ -66,7 +68,7 @@ func GenerateCertificate(d time.Duration, certFile, keyFile string) error {
 // If parentCertFile == "", then the parentKeyFile should be the private
 // key of the given certificate and the certificate will be self-signed.
 func SignCertificate(certFile, parentCertFile, parentKeyFile string) error {
-	c, err := newCertificate(certFile)
+	c, err := readCertificate(certFile)
 	if err != nil {
 		return err
 	}
@@ -75,14 +77,11 @@ func SignCertificate(certFile, parentCertFile, parentKeyFile string) error {
 	if parentCertFile != "" {
 		c.Parent, err = newCertificate(parentCertFile)
 		if err != nil {
-			return err
-		}
-		if _, err := c.Parent.validate(); err != nil {
-			return fmt.Errorf("parent certificate is invalid: %w", err)
+			return fmt.Errorf("error creating parent certificate: %w", err)
 		}
 	}
 
-	key, err := readPrivateKey(parentKeyFile)
+	key, err := newCertificatePrivateKey(parentKeyFile)
 	if err != nil {
 		return err
 	}
@@ -94,8 +93,8 @@ func SignCertificate(certFile, parentCertFile, parentKeyFile string) error {
 	if !ed25519.PublicKey(signingCert.Data.PublicKey).Equal(key.Public()) {
 		return errors.New("private key and signing certificate do not match")
 	}
-	c.Signature = ed25519.Sign(key, c.deterministicallySerializeCertifiedData())
 
+	c.Signature = ed25519.Sign(key, c.deterministicallySerializeCertifiedData())
 	return c.marshalAndWrite(certFile)
 }
 
@@ -143,6 +142,17 @@ func (cr certificateRegistry) validate(b []byte) (ed25519.PublicKey, error) {
 }
 
 func newCertificate(certFile string) (*certificate, error) {
+	c, err := readCertificate(certFile)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := c.validate(); err != nil {
+		return nil, fmt.Errorf("certificate is invalid: %w", err)
+	}
+	return c, nil
+}
+
+func readCertificate(certFile string) (*certificate, error) {
 	cert, err := os.ReadFile(certFile)
 	if err != nil {
 		return nil, fmt.Errorf("error reading certificate file at '%s': %w", certFile, err)
@@ -168,7 +178,7 @@ func newWireAuthentication(certFile, keyFile string) (cert []byte, key ed25519.P
 		return nil, nil, err
 	}
 
-	key, err = readPrivateKey(keyFile)
+	key, err = newCertificatePrivateKey(keyFile)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -299,10 +309,21 @@ func unmarshalYAMLCertificateByteSlice(
 	return nil
 }
 
-func readPrivateKey(keyFile string) (ed25519.PrivateKey, error) {
-	key, err := os.ReadFile(keyFile)
+func newCertificatePrivateKey(keyFile string) (ed25519.PrivateKey, error) {
+	seed, err := os.ReadFile(keyFile)
 	if err != nil {
 		return nil, fmt.Errorf("error reading certificate private key file at '%s': %w", keyFile, err)
 	}
-	return ed25519.NewKeyFromSeed(key), nil
+
+	var key ed25519.PrivateKey
+	func() {
+		defer func() {
+			if p := recover(); p != nil {
+				key = nil
+				err = fmt.Errorf("error initializing certificate private key: %v", p)
+			}
+		}()
+		key = ed25519.NewKeyFromSeed(seed)
+	}()
+	return key, err
 }

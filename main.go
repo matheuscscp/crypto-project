@@ -12,8 +12,10 @@ const usage = `usage: %s <command> [args]
 
 commands:
 
-gen <duration> <cert_file> <key_file>
+gen <go_duration> <cert_file> <key_file>
 	Generate unsigned certificate with random key pair.
+	If <go_duration> <= 0, then <go_duration> is assigned
+	365 days.
 
 sign <cert_file> <parent_cert_file> <parent_key_file>
 	Sign <cert_file> with <parent_key_file>.
