@@ -22,11 +22,10 @@ type (
 // and a (cert, key) pair of files for self-authentication and returns a factory
 // for upgrading insecure connections into secure ones.
 //
-// If an empty set of trusted root certificates is passed, any certificate will
-// be trusted.
+// If an empty set of trusted root certificates is passed, any certificate chain
+// with all signatures valid will be trusted.
 //
-// Zero for handshakeReadTimeout indicates no timeout for reading handshake
-// messages.
+// If handshakeReadTimeout <= 0, then reading handshake messages will not timeout.
 func NewConnUpgrader(
 	trustedCerts []string,
 	certFile, keyFile string,
