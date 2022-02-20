@@ -11,7 +11,7 @@ type (
 	// ConnUpgrader provides an interface for upgrading insecure
 	// connections into secure ones.
 	ConnUpgrader struct {
-		certReg              *certificateRegistry
+		certReg              certificateRegistry
 		cert                 []byte
 		key                  ed25519.PrivateKey
 		handshakeReadTimeout time.Duration

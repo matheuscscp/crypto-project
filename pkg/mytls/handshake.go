@@ -18,7 +18,7 @@ type (
 		c           net.Conn
 		cert        []byte
 		key         ed25519.PrivateKey
-		certReg     *certificateRegistry
+		certReg     certificateRegistry
 		readTimeout time.Duration
 	}
 )

@@ -15,16 +15,12 @@ import (
 )
 
 type (
-	certificateRegistry struct {
-		r map[publicKey]*certificate
-	}
-
-	publicKey [ed25519.PublicKeySize]byte
-	signature [ed25519.SignatureSize]byte
+	certificateRegistry map[publicKeyArray]struct{}
+	publicKeyArray      [ed25519.PublicKeySize]byte
 
 	certificate struct {
 		Data      certifiedData `yaml:"certifiedData"`
-		Signature signature     `yaml:"certifiedDataSignature"`
+		Signature signature     `yaml:"certifiedDataSignature,omitempty"`
 		Parent    *certificate  `yaml:"parentCertificate,omitempty"`
 	}
 
@@ -34,6 +30,9 @@ type (
 		Organization string    `yaml:"organization"`
 		Records      []string  `yaml:"records"`
 	}
+
+	publicKey []byte
+	signature []byte
 )
 
 // GenerateCertificate generates an unsigned certificate with a random
@@ -45,7 +44,7 @@ func GenerateCertificate(d time.Duration, certFile, keyFile string) error {
 	}
 
 	var c certificate
-	c.Data.PublicKey = *(*publicKey)(pub)
+	c.Data.PublicKey = publicKey(pub)
 	if d <= 0 {
 		d = time.Hour * 24 * 365
 	}
@@ -72,11 +71,14 @@ func SignCertificate(certFile, parentCertFile, parentKeyFile string) error {
 		return err
 	}
 
-	parent := c
+	c.Parent = nil
 	if parentCertFile != "" {
-		parent, err = newCertificate(parentCertFile)
+		c.Parent, err = newCertificate(parentCertFile)
 		if err != nil {
 			return err
+		}
+		if _, err := c.Parent.validate(); err != nil {
+			return fmt.Errorf("parent certificate is invalid: %w", err)
 		}
 	}
 
@@ -85,39 +87,34 @@ func SignCertificate(certFile, parentCertFile, parentKeyFile string) error {
 		return err
 	}
 
-	if !ed25519.PublicKey(parent.Data.PublicKey[:]).Equal(key.Public()) {
-		return errors.New("signing certificate and private key do not match")
+	signingCert := c.Parent
+	if signingCert == nil {
+		signingCert = c
 	}
-
-	sig := ed25519.Sign(key, c.deterministicallySerializeCertifiedData())
-	copy(c.Signature[:], sig)
-
-	if parent == c {
-		parent = nil
+	if !ed25519.PublicKey(signingCert.Data.PublicKey).Equal(key.Public()) {
+		return errors.New("private key and signing certificate do not match")
 	}
-	c.Parent = parent
+	c.Signature = ed25519.Sign(key, c.deterministicallySerializeCertifiedData())
 
 	return c.marshalAndWrite(certFile)
 }
 
-func newCertificateRegistry(certFiles []string) (*certificateRegistry, error) {
-	cr := &certificateRegistry{
-		r: make(map[publicKey]*certificate),
-	}
+func newCertificateRegistry(certFiles []string) (certificateRegistry, error) {
+	cr := make(certificateRegistry)
 
 	for _, f := range certFiles {
 		cert, err := newCertificate(f)
 		if err != nil {
 			return nil, err
 		}
-		cr.r[cert.Data.PublicKey] = cert
+		cr[*cert.Data.PublicKey.asArray()] = struct{}{}
 	}
 
 	return cr, nil
 }
 
-func (cr *certificateRegistry) validate(b []byte) (ed25519.PublicKey, error) {
-	if len(cr.r) == 0 {
+func (cr certificateRegistry) validate(b []byte) (ed25519.PublicKey, error) {
+	if len(cr) == 0 {
 		return nil, nil
 	}
 
@@ -135,11 +132,14 @@ func (cr *certificateRegistry) validate(b []byte) (ed25519.PublicKey, error) {
 		return nil, err
 	}
 
-	if _, ok := cr.r[*rootPubKey]; !ok {
-		return nil, errors.New("self signed certificate")
+	if _, ok := cr[*rootPubKey]; !ok {
+		if rootPubKey == c.Data.PublicKey.asArray() {
+			return nil, errors.New("self signed certificate")
+		}
+		return nil, errors.New("untrusted root certificate")
 	}
 
-	return c.Data.PublicKey[:], nil
+	return ed25519.PublicKey(c.Data.PublicKey), nil
 }
 
 func newCertificate(certFile string) (*certificate, error) {
@@ -192,24 +192,24 @@ func (c *certificate) wireFormat() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (c *certificate) validate() (*publicKey, error) {
+func (c *certificate) validate() (*publicKeyArray, error) {
 	if c.Parent == nil {
-		p := &c.Data.PublicKey
+		p := c.Data.PublicKey.asArray()
 		if err := c.validateWithPublicKey(p); err != nil {
 			return nil, err
 		}
 		return p, nil
 	}
 
-	if err := c.validateWithPublicKey(&c.Parent.Data.PublicKey); err != nil {
+	if err := c.validateWithPublicKey(c.Parent.Data.PublicKey.asArray()); err != nil {
 		return nil, err
 	}
 
 	return c.Parent.validate()
 }
 
-func (c *certificate) validateWithPublicKey(p *publicKey) error {
-	if !ed25519.Verify(p[:], c.deterministicallySerializeCertifiedData(), c.Signature[:]) {
+func (c *certificate) validateWithPublicKey(p *publicKeyArray) error {
+	if !ed25519.Verify(p[:], c.deterministicallySerializeCertifiedData(), c.Signature) {
 		return errors.New("signature cannot be verified")
 	}
 	if c.Data.ExpiresAt.Before(time.Now()) {
@@ -220,7 +220,7 @@ func (c *certificate) validateWithPublicKey(p *publicKey) error {
 
 func (c *certificate) deterministicallySerializeCertifiedData() []byte {
 	var buf bytes.Buffer
-	buf.Write(c.Data.PublicKey[:])
+	buf.Write(c.Data.PublicKey)
 	buf.Write([]byte(c.Data.ExpiresAt.Format(time.RFC3339)))
 	buf.Write([]byte(c.Data.Organization))
 	for _, r := range c.Data.Records {
@@ -240,54 +240,62 @@ func (c *certificate) marshalAndWrite(certFile string) error {
 	return nil
 }
 
+func (p publicKey) asArray() *publicKeyArray {
+	return (*publicKeyArray)(p)
+}
+
 func (p publicKey) MarshalYAML() (interface{}, error) {
-	return base64.StdEncoding.EncodeToString(p[:]), nil
+	return marshalYAMLCertificateByteSlice(p)
 }
 
 func (p *publicKey) UnmarshalYAML(value *yaml.Node) error {
-	var buf string
-	if err := value.Decode(&buf); err != nil {
-		return err
-	}
-	n, err := base64.StdEncoding.Decode(p[:], []byte(buf))
-	if err != nil {
-		return err
-	}
-	expectedSize := len(p[:])
-	if n != expectedSize {
-		return fmt.Errorf("public key has length %d but should have length %d", n, expectedSize)
-	}
-	return nil
+	return unmarshalYAMLCertificateByteSlice(
+		value,
+		(*[]byte)(p),
+		"public key", // sliceType
+		ed25519.PublicKeySize,
+	)
 }
 
 func (s signature) MarshalYAML() (interface{}, error) {
-	sum := 0
-	for _, x := range s {
-		sum += int(x)
-	}
-	if sum == 0 {
-		return "", nil
-	}
-	return base64.StdEncoding.EncodeToString(s[:]), nil
+	return marshalYAMLCertificateByteSlice(s)
 }
 
 func (s *signature) UnmarshalYAML(value *yaml.Node) error {
-	var buf string
-	if err := value.Decode(&buf); err != nil {
+	return unmarshalYAMLCertificateByteSlice(
+		value,
+		(*[]byte)(s),
+		"signature", // sliceType
+		ed25519.SignatureSize,
+	)
+}
+
+func marshalYAMLCertificateByteSlice(b []byte) (interface{}, error) {
+	return base64.StdEncoding.EncodeToString(b), nil
+}
+
+func unmarshalYAMLCertificateByteSlice(
+	value *yaml.Node,
+	buf *[]byte,
+	sliceType string,
+	expectedLen int,
+) error {
+	var s string
+	if err := value.Decode(&s); err != nil {
 		return err
 	}
-	if buf == "" {
-		*s = signature{}
+	if s == "" {
+		*buf = nil
 		return nil
 	}
-	n, err := base64.StdEncoding.Decode(s[:], []byte(buf))
+	v, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
 		return err
 	}
-	expectedSize := len(s[:])
-	if n != expectedSize {
-		return fmt.Errorf("signature has length %d but should have length %d", n, expectedSize)
+	if l := len(v); l != expectedLen {
+		return fmt.Errorf("%s has length %d but should have length %d", sliceType, expectedLen, l)
 	}
+	*buf = v
 	return nil
 }
 
