@@ -3,6 +3,7 @@ package mytls
 import (
 	"bytes"
 	"crypto/ed25519"
+	cryptorand "crypto/rand"
 	"encoding/base64"
 	"encoding/gob"
 	"errors"
@@ -34,6 +35,70 @@ type (
 		Records      []string  `yaml:"records"`
 	}
 )
+
+// GenerateCertificate generates an unsigned certificate with a random
+// key pair.
+func GenerateCertificate(d time.Duration, certFile, keyFile string) error {
+	pub, pri, err := ed25519.GenerateKey(cryptorand.Reader)
+	if err != nil {
+		return fmt.Errorf("error generating random key pair for certificate: %w", err)
+	}
+
+	var c certificate
+	c.Data.PublicKey = *(*publicKey)(pub)
+	if d <= 0 {
+		d = time.Hour * 24 * 365
+	}
+	c.Data.ExpiresAt = time.Now().Add(d)
+
+	if err := c.marshalAndWrite(certFile); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(keyFile, pri.Seed(), 0644); err != nil {
+		return fmt.Errorf("error writing private key file: %w", err)
+	}
+
+	return nil
+}
+
+// SignCertificate uses a parent certificate to sign the given certificate.
+//
+// If parentCertFile == "", then the parentKeyFile should be the private
+// key of the given certificate and the certificate will be self-signed.
+func SignCertificate(certFile, parentCertFile, parentKeyFile string) error {
+	c, err := newCertificate(certFile)
+	if err != nil {
+		return err
+	}
+
+	parent := c
+	if parentCertFile != "" {
+		parent, err = newCertificate(parentCertFile)
+		if err != nil {
+			return err
+		}
+	}
+
+	key, err := readPrivateKey(parentKeyFile)
+	if err != nil {
+		return err
+	}
+
+	if !ed25519.PublicKey(parent.Data.PublicKey[:]).Equal(key.Public()) {
+		return errors.New("signing certificate and private key do not match")
+	}
+
+	sig := ed25519.Sign(key, c.deterministicallySerializeCertifiedData())
+	copy(c.Signature[:], sig)
+
+	if parent == c {
+		parent = nil
+	}
+	c.Parent = parent
+
+	return c.marshalAndWrite(certFile)
+}
 
 func newCertificateRegistry(certFiles []string) (*certificateRegistry, error) {
 	cr := &certificateRegistry{
@@ -103,12 +168,12 @@ func newListenerCertificate(certFile, keyFile string) ([]byte, ed25519.PrivateKe
 		return nil, nil, err
 	}
 
-	key, err := os.ReadFile(keyFile)
+	key, err := readPrivateKey(keyFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading certificate private key file at '%s': %w", keyFile, err)
+		return nil, nil, err
 	}
 
-	return cert, ed25519.NewKeyFromSeed(key), nil
+	return cert, key, nil
 }
 
 func parseWireCertificate(b []byte) (*certificate, error) {
@@ -164,6 +229,17 @@ func (c *certificate) deterministicallySerializeCertifiedData() []byte {
 	return buf.Bytes()
 }
 
+func (c *certificate) marshalAndWrite(certFile string) error {
+	b, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("error marshaling certificate: %w", err)
+	}
+	if err := os.WriteFile(certFile, b, 0644); err != nil {
+		return fmt.Errorf("error writing certificate file: %w", err)
+	}
+	return nil
+}
+
 func (p publicKey) MarshalYAML() (interface{}, error) {
 	return base64.StdEncoding.EncodeToString(p[:]), nil
 }
@@ -202,4 +278,12 @@ func (s *signature) UnmarshalYAML(value *yaml.Node) error {
 		return fmt.Errorf("signature has length %d but should have length %d", n, expectedSize)
 	}
 	return nil
+}
+
+func readPrivateKey(keyFile string) (ed25519.PrivateKey, error) {
+	key, err := os.ReadFile(keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("error reading certificate private key file at '%s': %w", keyFile, err)
+	}
+	return ed25519.NewKeyFromSeed(key), nil
 }
