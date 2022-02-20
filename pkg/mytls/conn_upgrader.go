@@ -54,7 +54,7 @@ func (u *ConnUpgrader) Upgrade(c net.Conn) net.Conn {
 	h := &handshake{
 		c:           c,
 		cert:        u.cert,
-		key:         u.cert,
+		key:         u.key,
 		certReg:     u.certReg,
 		readTimeout: u.handshakeReadTimeout,
 	}
