@@ -31,8 +31,10 @@ type (
 		Records      []string             `yaml:"records"`
 	}
 
-	certificatePublicKey []byte
-	certificateSignature []byte
+	certificatePublicKey  []byte
+	certificateSignature  []byte
+	certificateWireFormat []byte
+	certificatePrivateKey ed25519.PrivateKey
 )
 
 var (
@@ -96,11 +98,12 @@ func SignCertificate(certFile, parentCertFile, parentKeyFile string) error {
 	if signingCert == nil {
 		signingCert = c
 	}
-	if !ed25519.PublicKey(signingCert.Data.PublicKey).Equal(key.Public()) {
+	signingKey := ed25519.PrivateKey(key)
+	if !ed25519.PublicKey(signingCert.Data.PublicKey).Equal(signingKey.Public()) {
 		return errors.New("private key and signing certificate do not match")
 	}
 
-	c.Signature = ed25519.Sign(key, c.deterministicallySerializeCertifiedData())
+	c.Signature = ed25519.Sign(signingKey, c.deterministicallySerializeCertifiedData())
 	return c.marshalAndWrite(certFile)
 }
 
@@ -118,7 +121,7 @@ func newCertificateRegistry(certFiles []string) (certificateRegistry, error) {
 	return cr, nil
 }
 
-func (cr certificateRegistry) validate(b []byte) (ed25519.PublicKey, error) {
+func (cr certificateRegistry) validate(b certificateWireFormat) (ed25519.PublicKey, error) {
 	if len(b) == 0 {
 		if len(cr) > 0 {
 			return nil, errors.New("want certificate but got empty")
@@ -164,7 +167,7 @@ func readCertificate(certFile string) (*certificate, error) {
 	return &c, nil
 }
 
-func newWireAuthentication(certFile, keyFile string) (cert []byte, key ed25519.PrivateKey, err error) {
+func newWireAuthentication(certFile, keyFile string) (certificateWireFormat, certificatePrivateKey, error) {
 	if certFile == "" {
 		return nil, nil, nil
 	}
@@ -173,20 +176,20 @@ func newWireAuthentication(certFile, keyFile string) (cert []byte, key ed25519.P
 	if err != nil {
 		return nil, nil, err
 	}
-	cert, err = c.wireFormat()
+	cert, err := c.wireFormat()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	key, err = newCertificatePrivateKey(keyFile)
+	key, err := newCertificatePrivateKey(keyFile)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return
+	return cert, key, nil
 }
 
-func parseWireCertificate(b []byte) (*certificate, error) {
+func parseWireCertificate(b certificateWireFormat) (*certificate, error) {
 	var c certificate
 	if err := gob.NewDecoder(bytes.NewBuffer(b)).Decode(&c); err != nil {
 		return nil, err
@@ -194,7 +197,7 @@ func parseWireCertificate(b []byte) (*certificate, error) {
 	return &c, nil
 }
 
-func (c *certificate) wireFormat() ([]byte, error) {
+func (c *certificate) wireFormat() (certificateWireFormat, error) {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(c); err != nil {
 		return nil, err
@@ -318,13 +321,13 @@ func unmarshalYAMLCertificateByteSlice(
 	return nil
 }
 
-func newCertificatePrivateKey(keyFile string) (ed25519.PrivateKey, error) {
+func newCertificatePrivateKey(keyFile string) (certificatePrivateKey, error) {
 	seed, err := os.ReadFile(keyFile)
 	if err != nil {
 		return nil, fmt.Errorf("error reading certificate private key file at '%s': %w", keyFile, err)
 	}
 
-	var key ed25519.PrivateKey
+	var key certificatePrivateKey
 	func() {
 		defer func() {
 			if p := recover(); p != nil {
@@ -332,7 +335,7 @@ func newCertificatePrivateKey(keyFile string) (ed25519.PrivateKey, error) {
 				err = fmt.Errorf("error initializing certificate private key: %v", p)
 			}
 		}()
-		key = ed25519.NewKeyFromSeed(seed)
+		key = certificatePrivateKey(ed25519.NewKeyFromSeed(seed))
 	}()
 	return key, err
 }

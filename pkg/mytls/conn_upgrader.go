@@ -1,7 +1,6 @@
 package mytls
 
 import (
-	"crypto/ed25519"
 	"fmt"
 	"net"
 	"time"
@@ -12,8 +11,8 @@ type (
 	// connections into secure ones.
 	ConnUpgrader struct {
 		certReg              certificateRegistry
-		cert                 []byte
-		key                  ed25519.PrivateKey
+		cert                 certificateWireFormat
+		key                  certificatePrivateKey
 		handshakeReadTimeout time.Duration
 	}
 )

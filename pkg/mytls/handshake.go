@@ -16,8 +16,8 @@ import (
 type (
 	handshake struct {
 		c           net.Conn
-		cert        []byte
-		key         ed25519.PrivateKey
+		cert        certificateWireFormat
+		key         certificatePrivateKey
 		certReg     certificateRegistry
 		readTimeout time.Duration
 	}
@@ -78,7 +78,7 @@ func (h *handshake) doExchange(ecdhePublicKey []byte) ([]byte, error) {
 func (h *handshake) writeWithSignature(b []byte) error {
 	var sig []byte
 	if len(h.key) > 0 {
-		sig = ed25519.Sign(h.key, b)
+		sig = ed25519.Sign(ed25519.PrivateKey(h.key), b)
 	}
 
 	if err := writeLV(h.c, b); err != nil {
