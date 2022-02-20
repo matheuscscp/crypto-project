@@ -34,7 +34,7 @@ type (
 	certificatePublicKey  []byte
 	certificateSignature  []byte
 	certificateWireFormat []byte
-	certificatePrivateKey ed25519.PrivateKey
+	certificatePrivateKey []byte
 )
 
 var (
