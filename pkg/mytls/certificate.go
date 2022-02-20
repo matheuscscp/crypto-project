@@ -15,24 +15,24 @@ import (
 )
 
 type (
-	certificateRegistry map[publicKeyArray]struct{}
-	publicKeyArray      [ed25519.PublicKeySize]byte
+	certificateRegistry       map[certificatePublicKeyArray]struct{}
+	certificatePublicKeyArray [ed25519.PublicKeySize]byte
 
 	certificate struct {
-		Data      certifiedData `yaml:"certifiedData"`
-		Signature signature     `yaml:"certifiedDataSignature,omitempty"`
-		Parent    *certificate  `yaml:"parentCertificate,omitempty"`
+		Data      certifiedData        `yaml:"certifiedData"`
+		Signature certificateSignature `yaml:"certifiedDataSignature,omitempty"`
+		Parent    *certificate         `yaml:"parentCertificate,omitempty"`
 	}
 
 	certifiedData struct {
-		PublicKey    publicKey `yaml:"publicKey"`
-		ExpiresAt    time.Time `yaml:"expiresAt"`
-		Organization string    `yaml:"organization"`
-		Records      []string  `yaml:"records"`
+		PublicKey    certificatePublicKey `yaml:"publicKey"`
+		ExpiresAt    time.Time            `yaml:"expiresAt"`
+		Organization string               `yaml:"organization"`
+		Records      []string             `yaml:"records"`
 	}
 
-	publicKey []byte
-	signature []byte
+	certificatePublicKey []byte
+	certificateSignature []byte
 )
 
 // GenerateCertificate generates an unsigned certificate with a random
@@ -44,7 +44,7 @@ func GenerateCertificate(d time.Duration, certFile, keyFile string) error {
 	}
 
 	var c certificate
-	c.Data.PublicKey = publicKey(pub)
+	c.Data.PublicKey = certificatePublicKey(pub)
 	if d <= 0 {
 		d = time.Hour * 24 * 365
 	}
@@ -192,7 +192,7 @@ func (c *certificate) wireFormat() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (c *certificate) validate() (*publicKeyArray, error) {
+func (c *certificate) validate() (*certificatePublicKeyArray, error) {
 	if c.Parent == nil {
 		p := c.Data.PublicKey.asArray()
 		if err := c.validateWithPublicKey(p); err != nil {
@@ -208,7 +208,7 @@ func (c *certificate) validate() (*publicKeyArray, error) {
 	return c.Parent.validate()
 }
 
-func (c *certificate) validateWithPublicKey(p *publicKeyArray) error {
+func (c *certificate) validateWithPublicKey(p *certificatePublicKeyArray) error {
 	if !ed25519.Verify(p[:], c.deterministicallySerializeCertifiedData(), c.Signature) {
 		return errors.New("signature cannot be verified")
 	}
@@ -240,15 +240,15 @@ func (c *certificate) marshalAndWrite(certFile string) error {
 	return nil
 }
 
-func (p publicKey) asArray() *publicKeyArray {
-	return (*publicKeyArray)(p)
+func (p certificatePublicKey) asArray() *certificatePublicKeyArray {
+	return (*certificatePublicKeyArray)(p)
 }
 
-func (p publicKey) MarshalYAML() (interface{}, error) {
+func (p certificatePublicKey) MarshalYAML() (interface{}, error) {
 	return marshalYAMLCertificateByteSlice(p)
 }
 
-func (p *publicKey) UnmarshalYAML(value *yaml.Node) error {
+func (p *certificatePublicKey) UnmarshalYAML(value *yaml.Node) error {
 	return unmarshalYAMLCertificateByteSlice(
 		value,
 		(*[]byte)(p),
@@ -257,11 +257,11 @@ func (p *publicKey) UnmarshalYAML(value *yaml.Node) error {
 	)
 }
 
-func (s signature) MarshalYAML() (interface{}, error) {
+func (s certificateSignature) MarshalYAML() (interface{}, error) {
 	return marshalYAMLCertificateByteSlice(s)
 }
 
-func (s *signature) UnmarshalYAML(value *yaml.Node) error {
+func (s *certificateSignature) UnmarshalYAML(value *yaml.Node) error {
 	return unmarshalYAMLCertificateByteSlice(
 		value,
 		(*[]byte)(s),
