@@ -25,7 +25,7 @@ type (
 	certificate struct {
 		Data      certifiedData `yaml:"certifiedData"`
 		Signature signature     `yaml:"certifiedDataSignature"`
-		Parent    *certificate  `yaml:"parentCertificate"`
+		Parent    *certificate  `yaml:"parentCertificate,omitempty"`
 	}
 
 	certifiedData struct {
@@ -261,6 +261,13 @@ func (p *publicKey) UnmarshalYAML(value *yaml.Node) error {
 }
 
 func (s signature) MarshalYAML() (interface{}, error) {
+	sum := 0
+	for _, x := range s {
+		sum += int(x)
+	}
+	if sum == 0 {
+		return "", nil
+	}
 	return base64.StdEncoding.EncodeToString(s[:]), nil
 }
 
@@ -268,6 +275,10 @@ func (s *signature) UnmarshalYAML(value *yaml.Node) error {
 	var buf string
 	if err := value.Decode(&buf); err != nil {
 		return err
+	}
+	if buf == "" {
+		*s = signature{}
+		return nil
 	}
 	n, err := base64.StdEncoding.Decode(s[:], []byte(buf))
 	if err != nil {
