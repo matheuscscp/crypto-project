@@ -93,7 +93,7 @@ func (h *handshake) writeWithSignature(b []byte) error {
 	return nil
 }
 
-func (h *handshake) readAndVerify(peerECDSA ed25519.PublicKey) ([]byte, error) {
+func (h *handshake) readAndVerify(peerECDSA certificatePublicKey) ([]byte, error) {
 	b, err := readLVWithTimeout(h.c, h.readTimeout)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (h *handshake) readAndVerify(peerECDSA ed25519.PublicKey) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !ed25519.Verify(peerECDSA, b, sig) {
+		if !ed25519.Verify(ed25519.PublicKey(peerECDSA), b, sig) {
 			return nil, errors.New("invalid signature for message")
 		}
 	}

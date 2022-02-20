@@ -121,7 +121,7 @@ func newCertificateRegistry(certFiles []string) (certificateRegistry, error) {
 	return cr, nil
 }
 
-func (cr certificateRegistry) validate(b certificateWireFormat) (ed25519.PublicKey, error) {
+func (cr certificateRegistry) validate(b certificateWireFormat) (certificatePublicKey, error) {
 	if len(b) == 0 {
 		if len(cr) > 0 {
 			return nil, errors.New("want certificate but got empty")
@@ -141,7 +141,7 @@ func (cr certificateRegistry) validate(b certificateWireFormat) (ed25519.PublicK
 		return nil, err
 	}
 
-	return ed25519.PublicKey(c.Data.PublicKey), nil
+	return c.Data.PublicKey, nil
 }
 
 func newCertificate(certFile string) (*certificate, error) {
