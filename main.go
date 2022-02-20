@@ -13,7 +13,7 @@ const usage = `usage: %s <command> [args]
 commands:
 
 gen <duration> <cert_file> <key_file>
-	Generate certificate with random key pair
+	Generate unsigned certificate with random key pair.
 
 sign <cert_file> <parent_cert_file> <parent_key_file>
 	Sign <cert_file> with <parent_key_file>.
