@@ -21,6 +21,9 @@ type (
 		certReg     certificateRegistry
 		readTimeout time.Duration
 	}
+
+	ecdhePrivateKey []byte
+	ecdhePublicKey  []byte
 )
 
 func (h *handshake) doHandshake() (cipher.AEAD, error) {
@@ -50,7 +53,7 @@ func (h *handshake) doHandshake() (cipher.AEAD, error) {
 	return aead, nil
 }
 
-func (h *handshake) doExchange(ecdhePublicKey []byte) ([]byte, error) {
+func (h *handshake) doExchange(mine ecdhePublicKey) (ecdhePublicKey, error) {
 	if err := writeLV(h.c, h.cert); err != nil {
 		return nil, fmt.Errorf("error writing certificate: %w", err)
 	}
@@ -59,20 +62,20 @@ func (h *handshake) doExchange(ecdhePublicKey []byte) ([]byte, error) {
 		return nil, fmt.Errorf("error reading peer certificate: %w", err)
 	}
 
-	peerECDSAPublicKey, err := h.certReg.validate(peerCert)
+	peerECDSA, err := h.certReg.validate(peerCert)
 	if err != nil {
 		return nil, fmt.Errorf("error validating peer certificate: %w", err)
 	}
 
-	if err := h.writeWithSignature(ecdhePublicKey); err != nil {
+	if err := h.writeWithSignature(mine); err != nil {
 		return nil, err
 	}
-	peerECDHEPublicKey, err := h.readAndVerify(peerECDSAPublicKey)
+	peer, err := h.readAndVerify(peerECDSA)
 	if err != nil {
 		return nil, err
 	}
 
-	return peerECDHEPublicKey, nil
+	return peer, nil
 }
 
 func (h *handshake) writeWithSignature(b []byte) error {
@@ -112,7 +115,7 @@ func (h *handshake) readAndVerify(peerECDSA certificatePublicKey) ([]byte, error
 	return b, nil
 }
 
-func generateECDHEKeyPair() (private, public []byte, err error) {
+func generateECDHEKeyPair() (private ecdhePrivateKey, public ecdhePublicKey, err error) {
 	pri := make([]byte, curve25519.ScalarSize)
 	if _, err := cryptorand.Read(pri); err != nil {
 		return nil, nil, fmt.Errorf("error generating private key: %w", err)
@@ -126,7 +129,7 @@ func generateECDHEKeyPair() (private, public []byte, err error) {
 	return
 }
 
-func aeadFromECDHEKeyPair(private, public []byte) (cipher.AEAD, error) {
+func aeadFromECDHEKeyPair(private ecdhePrivateKey, public ecdhePublicKey) (cipher.AEAD, error) {
 	sharedKey, err := curve25519.X25519(private, public)
 	if err != nil {
 		return nil, fmt.Errorf("error combining keys: %w", err)
