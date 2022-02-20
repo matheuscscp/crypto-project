@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -18,7 +19,8 @@ type (
 		aead         cipher.AEAD
 		handshakeErr error
 
-		readBuf []byte
+		writeMtx sync.Mutex
+		readBuf  []byte
 	}
 )
 
@@ -36,10 +38,13 @@ func (c *conn) Write(b []byte) (int, error) {
 		return 0, err
 	}
 
-	if err := writeLV(c.Conn, msg); err != nil {
+	c.writeMtx.Lock()
+	err = writeLV(c.Conn, msg)
+	c.writeMtx.Unlock()
+
+	if err != nil {
 		return 0, err
 	}
-
 	return len(b), nil
 }
 
