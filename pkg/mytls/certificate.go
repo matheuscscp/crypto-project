@@ -223,9 +223,6 @@ func (c *certificate) validate(cr certificateRegistry) error {
 	if err := c.validateWithPublicKey(key); err != nil {
 		return err
 	}
-	if _, parentIsTrusted := cr[*key]; parentIsTrusted {
-		return nil
-	}
 
 	return c.Parent.validate(cr)
 }
