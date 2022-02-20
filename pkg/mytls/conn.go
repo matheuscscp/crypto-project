@@ -2,19 +2,13 @@ package mytls
 
 import (
 	"crypto/cipher"
-	"crypto/hmac"
 	cryptorand "crypto/rand"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"net"
 	"time"
-
-	"golang.org/x/crypto/chacha20poly1305"
-	"golang.org/x/crypto/curve25519"
 )
 
 type (
@@ -26,27 +20,7 @@ type (
 
 		readBuf []byte
 	}
-
-	handshake struct {
-		c    net.Conn
-		hash hash.Hash
-	}
 )
-
-func UpgradeConn(c net.Conn, sharedKey []byte) net.Conn {
-	u := &conn{Conn: c}
-
-	h := &handshake{
-		c:    c,
-		hash: hmac.New(sha256.New, sharedKey),
-	}
-	u.aead, u.handshakeErr = h.doHandshake()
-	if u.handshakeErr != nil {
-		u.handshakeErr = fmt.Errorf("error on handshake: %w", u.handshakeErr)
-	}
-
-	return u
-}
 
 func (c *conn) Write(b []byte) (int, error) {
 	if c.handshakeErr != nil {
@@ -118,101 +92,15 @@ func (c *conn) decrypt(b []byte) ([]byte, error) {
 	return b, nil
 }
 
-func (h *handshake) doHandshake() (cipher.AEAD, error) {
-	pri, pub, err := generateECDHEKeyPair()
-	if err != nil {
-		return nil, err
-	}
-	pubPeer, err := h.doExchange(pub)
-	if err != nil {
-		return nil, err
-	}
-	return aeadFromECDHEKeyPair(pri, pubPeer)
-}
-
-func (h *handshake) doExchange(publicKey []byte) ([]byte, error) {
-	if err := h.writeWithSignature(publicKey); err != nil {
-		return nil, err
-	}
-	pubPeer, err := h.readAndVerify()
-	if err != nil {
-		return nil, err
-	}
-	return pubPeer, nil
-}
-
-func (h *handshake) writeWithSignature(b []byte) error {
-	h.hash.Reset()
-	if _, err := h.hash.Write(b); err != nil {
-		return fmt.Errorf("error writing handshake payload to hash: %w", err)
-	}
-	sig := h.hash.Sum(nil)
-
-	if err := writeLV(h.c, b); err != nil {
-		return fmt.Errorf("error writing handshake payload: %w", err)
-	}
-	if err := writeLV(h.c, sig); err != nil {
-		return fmt.Errorf("error writing handshake signature: %w", err)
-	}
-
-	return nil
-}
-
-func (h *handshake) readAndVerify() ([]byte, error) {
-	h.c.SetReadDeadline(time.Now().Add(time.Second))
-	defer h.c.SetReadDeadline(time.Time{})
-
-	b, err := readLV(h.c)
-	if err != nil {
-		return nil, fmt.Errorf("error reading handshake payload: %w", err)
-	}
-	sig, err := readLV(h.c)
-	if err != nil {
-		return nil, fmt.Errorf("error reading handshake signature: %w", err)
-	}
-
-	h.hash.Reset()
-	if _, err := h.hash.Write(b); err != nil {
-		return nil, fmt.Errorf("error writing peer handshake payload to hash: %w", err)
-	}
-	if !hmac.Equal(sig, h.hash.Sum(nil)) {
-		return nil, errors.New("handshake payload signatures differ")
-	}
-
-	return b, nil
-}
-
-func generateECDHEKeyPair() (private, public []byte, err error) {
-	pri := make([]byte, curve25519.ScalarSize)
-	if _, err := cryptorand.Read(pri); err != nil {
-		return nil, nil, fmt.Errorf("error generating private key: %w", err)
-	}
-	pub, err := curve25519.X25519(pri, curve25519.Basepoint)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error generating public key: %w", err)
-	}
-	private = pri
-	public = pub
-	return
-}
-
-func aeadFromECDHEKeyPair(private, public []byte) (cipher.AEAD, error) {
-	sharedKey, err := curve25519.X25519(private, public)
-	if err != nil {
-		return nil, fmt.Errorf("error combining keys: %w", err)
-	}
-	aead, err := chacha20poly1305.NewX(sharedKey)
-	if err != nil {
-		return nil, fmt.Errorf("error creating cipher: %w", err)
-	}
-	return aead, nil
-}
-
 func writeLV(c net.Conn, b []byte) error {
 	size := int32(len(b))
 	if err := binary.Write(c, binary.LittleEndian, size); err != nil {
 		return fmt.Errorf("error writing message size: %w", err)
 	}
+	if size == 0 {
+		return nil
+	}
+
 	if _, err := c.Write(b); err != nil {
 		return fmt.Errorf("error writing message: %w", err)
 	}
@@ -224,9 +112,22 @@ func readLV(c net.Conn) ([]byte, error) {
 	if err := binary.Read(c, binary.LittleEndian, &size); err != nil {
 		return nil, fmt.Errorf("error reading message size: %w", err)
 	}
+	if size == 0 {
+		return nil, nil
+	}
+
 	buf := make([]byte, size)
 	if _, err := io.ReadFull(c, buf); err != nil {
 		return nil, fmt.Errorf("error reading message: %w", err)
 	}
 	return buf, nil
+}
+
+func readLVWithTimeout(c net.Conn, timeout time.Duration) ([]byte, error) {
+	if timeout > 0 {
+		c.SetReadDeadline(time.Now().Add(timeout))
+		defer c.SetReadDeadline(time.Time{})
+	}
+
+	return readLV(c)
 }
