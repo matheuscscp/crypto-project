@@ -37,9 +37,9 @@ func NewConnUpgrader(
 		return nil, fmt.Errorf("error creating certificate registry: %w", err)
 	}
 
-	cert, key, err := newListenerCertificate(certFile, keyFile)
+	cert, key, err := newWireAuthentication(certFile, keyFile)
 	if err != nil {
-		return nil, fmt.Errorf("error creating listener certificate: %w", err)
+		return nil, fmt.Errorf("error creating wire authentication: %w", err)
 	}
 
 	return &ConnUpgrader{

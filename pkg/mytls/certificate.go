@@ -154,7 +154,7 @@ func newCertificate(certFile string) (*certificate, error) {
 	return &c, nil
 }
 
-func newListenerCertificate(certFile, keyFile string) ([]byte, ed25519.PrivateKey, error) {
+func newWireAuthentication(certFile, keyFile string) (cert []byte, key ed25519.PrivateKey, err error) {
 	if certFile == "" {
 		return nil, nil, nil
 	}
@@ -163,17 +163,17 @@ func newListenerCertificate(certFile, keyFile string) ([]byte, ed25519.PrivateKe
 	if err != nil {
 		return nil, nil, err
 	}
-	cert, err := c.wireFormat()
+	cert, err = c.wireFormat()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	key, err := readPrivateKey(keyFile)
+	key, err = readPrivateKey(keyFile)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return cert, key, nil
+	return
 }
 
 func parseWireCertificate(b []byte) (*certificate, error) {
