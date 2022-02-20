@@ -35,11 +35,19 @@ func (h *handshake) doHandshake() (cipher.AEAD, error) {
 	if err != nil {
 		return nil, err
 	}
-	pubPeer, err := h.doExchange(pub)
+
+	peerPub, err := h.doExchange(pub)
 	if err != nil {
 		return nil, err
 	}
-	return aeadFromECDHEKeyPair(pri, pubPeer)
+
+	aead, err := aeadFromECDHEKeyPair(pri, peerPub)
+	if err != nil {
+		return nil, err
+	}
+
+	closeOnReturn = false
+	return aead, nil
 }
 
 func (h *handshake) doExchange(ecdhePublicKey []byte) ([]byte, error) {
