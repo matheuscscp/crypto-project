@@ -8,7 +8,6 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"time"
 
@@ -124,7 +123,7 @@ func newCertificateRegistry(certFiles []string) (certificateRegistry, error) {
 
 func (cr certificateRegistry) validate(
 	b certificateWireFormat,
-	remoteAddr net.Addr,
+	remoteAddr string,
 ) (certificatePublicKey, error) {
 	if len(b) == 0 {
 		if len(cr) > 0 {
@@ -146,12 +145,12 @@ func (cr certificateRegistry) validate(
 	}
 
 	for _, r := range c.Data.Records {
-		if r == remoteAddr.String() {
+		if r == remoteAddr {
 			return c.Data.PublicKey, nil
 		}
 	}
 
-	return nil, fmt.Errorf("no record present in certificate for remote address: %s", remoteAddr.String())
+	return nil, fmt.Errorf("no record present in certificate for remote address: %s", remoteAddr)
 }
 
 func newCertificate(certFile string) (*certificate, error) {

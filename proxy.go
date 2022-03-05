@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,15 +26,19 @@ type (
 	}
 )
 
-func proxyMain(trustedCertFiles []string) {
-	u, err := mytls.NewConnUpgrader(
-		trustedCertFiles,
-		"",          // certFile
-		"",          // keyFile
-		time.Second, // handshakeReadTimeout
-	)
-	if err != nil {
-		panic(err)
+func proxyMain(useTLSWithBackend bool, trustedCertFiles []string) {
+	var u *mytls.ConnUpgrader
+	var err error
+	if useTLSWithBackend {
+		u, err = mytls.NewConnUpgrader(
+			trustedCertFiles,
+			"",          // certFile
+			"",          // keyFile
+			time.Second, // handshakeReadTimeout
+		)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	l, err := net.Listen("tcp", "localhost:8081")
@@ -64,14 +70,17 @@ func proxyMain(trustedCertFiles []string) {
 func proxy(u *mytls.ConnUpgrader, c net.Conn) {
 	defer c.Close()
 
-	s, err := net.Dial("tcp", "localhost:8080")
+	const addr = "localhost:8080"
+	s, err := net.Dial("tcp", addr)
 	if err != nil {
 		log.Printf("error dialing to server: %v", err)
 		return
 	}
 	defer s.Close()
 
-	s = u.Upgrade(s)
+	if u != nil {
+		s = u.Upgrade(s, addr)
+	}
 
 	errCh := make(chan error, 2)
 
@@ -104,8 +113,28 @@ func proxy(u *mytls.ConnUpgrader, c net.Conn) {
 	}
 }
 
-func copyConn(dst io.Writer, src io.Reader) error {
-	_, err := io.Copy(&pureWriter{Writer: dst}, &pureReader{Reader: src})
+var proxyTapMtx sync.Mutex
+
+func copyConn(dst, src net.Conn) error {
+	var buf bytes.Buffer
+	tap := io.TeeReader(&pureReader{Reader: src}, &buf)
+	defer func() {
+		proxyTapMtx.Lock()
+		defer proxyTapMtx.Unlock()
+
+		f, err := os.OpenFile("proxy-capture.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		defer f.Close()
+
+		s := fmt.Sprintf("from %s to %s:\n\n", src.RemoteAddr().String(), dst.RemoteAddr().String())
+		s += fmt.Sprintf("=====\n%s\n=====\n\n", string(buf.Bytes()))
+		f.Write([]byte(s))
+	}()
+
+	_, err := io.Copy(&pureWriter{Writer: dst}, &pureReader{Reader: tap})
 	if err != nil && !isUseOfClosedConn(err) {
 		return err
 	}

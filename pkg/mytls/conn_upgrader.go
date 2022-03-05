@@ -49,9 +49,10 @@ func NewConnUpgrader(
 }
 
 // Upgrade upgrades a connection by performing the handshake.
-func (u *ConnUpgrader) Upgrade(c net.Conn) net.Conn {
+func (u *ConnUpgrader) Upgrade(c net.Conn, remoteAddr string) net.Conn {
 	h := &handshake{
 		c:           c,
+		remoteAddr:  remoteAddr,
 		cert:        u.cert,
 		key:         u.key,
 		certReg:     u.certReg,

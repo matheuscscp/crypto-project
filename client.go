@@ -11,7 +11,7 @@ import (
 	"github.com/matheuscscp/crypto-project/pkg/mytls"
 )
 
-func clientMain(trustedCertFiles []string) {
+func clientMain(port string, trustedCertFiles []string) {
 	u, err := mytls.NewConnUpgrader(
 		trustedCertFiles,
 		"",          // certFile
@@ -33,13 +33,13 @@ func clientMain(trustedCertFiles []string) {
 		if err != nil {
 			return c, err
 		}
-		return u.Upgrade(c), nil
+		return u.Upgrade(c, addr), nil
 	}
 	c := &http.Client{
 		Transport: &t,
 	}
 
-	resp, err := c.Get("http://localhost:8080")
+	resp, err := c.Get(fmt.Sprintf("http://localhost:%s", port))
 	if err != nil {
 		panic(err)
 	}

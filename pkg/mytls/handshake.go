@@ -16,6 +16,7 @@ import (
 type (
 	handshake struct {
 		c           net.Conn
+		remoteAddr  string
 		cert        certificateWireFormat
 		key         certificatePrivateKey
 		certReg     certificateRegistry
@@ -62,7 +63,7 @@ func (h *handshake) doExchange(mine ecdhePublicKey) (ecdhePublicKey, error) {
 		return nil, fmt.Errorf("error reading peer certificate: %w", err)
 	}
 
-	peerECDSA, err := h.certReg.validate(peerCert, h.c.RemoteAddr())
+	peerECDSA, err := h.certReg.validate(peerCert, h.remoteAddr)
 	if err != nil {
 		return nil, fmt.Errorf("error validating peer certificate: %w", err)
 	}

@@ -30,12 +30,15 @@ self <cert_file> <key_file>
 server <cert_file> <key_file>
 	Start hello world HTTPS server on localhost:8080.
 
-proxy <trusted_cert_file>...
+proxy <use_tls_with_backend> <trusted_cert_file>...
 	Start TCP proxy server on localhost:8081 proxying
-	connections to localhost:8080 over TLS.
+	connections to localhost:8080. The parameter
+	<use_tls_with_backend> is a boolean to indicate
+	whether TLS should be used in the connection with
+	the backend (defaults to false).
 
-client <trusted_cert_file>...
-	Send GET / HTTPS request to localhost:8080.
+client <port> <trusted_cert_file>...
+	Send GET / HTTPS request to localhost:<port>.
 `
 
 func printUsage() {
@@ -79,9 +82,17 @@ func main() {
 			}
 			serverMain(os.Args[2], os.Args[3])
 		case "proxy":
-			proxyMain(os.Args[2:])
+			if len(os.Args) < 3 || (os.Args[2] != "true" && os.Args[2] != "false") {
+				printUsage()
+				return nil
+			}
+			proxyMain(os.Args[2] == "true", os.Args[3:])
 		case "client":
-			clientMain(os.Args[2:])
+			if len(os.Args) < 3 {
+				printUsage()
+				return nil
+			}
+			clientMain(os.Args[2], os.Args[3:])
 		default:
 			printUsage()
 		}
