@@ -1,33 +1,54 @@
 package main
 
-// import (
-// 	"fmt"
-// 	"io"
-// 	"net/http"
+import (
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"time"
 
-// 	"github.com/matheuscscp/crypto-project/pkg/mytls"
-// )
+	"github.com/matheuscscp/crypto-project/pkg/mytls"
+)
 
-// func clientMain(keyFile string) {
-// 	m, err := mytls.NewFromFile(keyFile)
-// 	if err != nil {
-// 		panic(err)
-// 	}
+func clientMain(trustedCertFiles []string) {
+	u, err := mytls.NewConnUpgrader(
+		trustedCertFiles,
+		"",          // certFile
+		"",          // keyFile
+		time.Second, // handshakeReadTimeout
+	)
+	if err != nil {
+		panic(err)
+	}
 
-// 	c := &http.Client{
-// 		Transport: m.Transport(),
-// 	}
+	dt, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		panic("somebody changed http.DefaultTransport")
+	}
+	dialCtx := dt.DialContext
+	t := *dt
+	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		c, err := dialCtx(ctx, network, addr)
+		if err != nil {
+			return c, err
+		}
+		return u.Upgrade(c), nil
+	}
+	c := &http.Client{
+		Transport: &t,
+	}
 
-// 	resp, err := c.Get("http://localhost:8080")
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// 	defer resp.Body.Close()
+	resp, err := c.Get("http://localhost:8080")
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
 
-// 	b, err := io.ReadAll(resp.Body)
-// 	if err != nil {
-// 		panic(err)
-// 	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		panic(err)
+	}
 
-// 	fmt.Println(string(b))
-// }
+	fmt.Println(string(b))
+}

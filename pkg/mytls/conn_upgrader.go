@@ -26,11 +26,11 @@ type (
 //
 // If handshakeReadTimeout <= 0, then reading handshake messages will not timeout.
 func NewConnUpgrader(
-	trustedCerts []string,
+	trustedCertFiles []string,
 	certFile, keyFile string,
 	handshakeReadTimeout time.Duration,
 ) (*ConnUpgrader, error) {
-	certReg, err := newCertificateRegistry(trustedCerts)
+	certReg, err := newCertificateRegistry(trustedCertFiles)
 	if err != nil {
 		return nil, fmt.Errorf("error creating certificate registry: %w", err)
 	}

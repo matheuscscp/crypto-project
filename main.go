@@ -12,10 +12,10 @@ const usage = `usage: %s <command> [args]
 
 commands:
 
-gen <go_duration> <cert_file> <key_file>
+gen <duration> <cert_file> <key_file>
 	Generate unsigned certificate with random key pair.
-	If <go_duration> <= 0, then <go_duration> is assigned
-	365 days.
+	If <duration> <= 0, then <duration> is assigned
+	365 days. Use go duration syntax.
 
 sign <cert_file> <parent_cert_file> <parent_key_file>
 	Sign <cert_file> with <parent_key_file>.
@@ -26,6 +26,16 @@ self <cert_file> <key_file>
 	Self-sign <cert_file>.
 	The <key_file> private key must match the public
 	key of <cert_file>.
+
+server <cert_file> <key_file>
+	Start hello world HTTPS server on localhost:8080.
+
+proxy <trusted_cert_file>...
+	Start TCP proxy server on localhost:8081 proxying
+	connections to localhost:8080 over TLS.
+
+client <trusted_cert_file>...
+	Send GET / HTTPS request to localhost:8080.
 `
 
 func printUsage() {
@@ -62,6 +72,16 @@ func main() {
 				return nil
 			}
 			return mytls.SignCertificate(os.Args[2], "", os.Args[3])
+		case "server":
+			if len(os.Args) < 4 {
+				printUsage()
+				return nil
+			}
+			serverMain(os.Args[2], os.Args[3])
+		case "proxy":
+			proxyMain(os.Args[2:])
+		case "client":
+			clientMain(os.Args[2:])
 		default:
 			printUsage()
 		}

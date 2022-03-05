@@ -8,6 +8,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"time"
 
@@ -121,7 +122,10 @@ func newCertificateRegistry(certFiles []string) (certificateRegistry, error) {
 	return cr, nil
 }
 
-func (cr certificateRegistry) validate(b certificateWireFormat) (certificatePublicKey, error) {
+func (cr certificateRegistry) validate(
+	b certificateWireFormat,
+	remoteAddr net.Addr,
+) (certificatePublicKey, error) {
 	if len(b) == 0 {
 		if len(cr) > 0 {
 			return nil, errors.New("want certificate but got empty")
@@ -141,7 +145,13 @@ func (cr certificateRegistry) validate(b certificateWireFormat) (certificatePubl
 		return nil, err
 	}
 
-	return c.Data.PublicKey, nil
+	for _, r := range c.Data.Records {
+		if r == remoteAddr.String() {
+			return c.Data.PublicKey, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no record present in certificate for remote address: %s", remoteAddr.String())
 }
 
 func newCertificate(certFile string) (*certificate, error) {

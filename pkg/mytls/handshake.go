@@ -62,7 +62,7 @@ func (h *handshake) doExchange(mine ecdhePublicKey) (ecdhePublicKey, error) {
 		return nil, fmt.Errorf("error reading peer certificate: %w", err)
 	}
 
-	peerECDSA, err := h.certReg.validate(peerCert)
+	peerECDSA, err := h.certReg.validate(peerCert, h.c.RemoteAddr())
 	if err != nil {
 		return nil, fmt.Errorf("error validating peer certificate: %w", err)
 	}
